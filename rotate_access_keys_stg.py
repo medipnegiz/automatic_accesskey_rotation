@@ -455,7 +455,7 @@ def lambda_handler(event, context):
                 if other_key and other_key['Status'] == 'Active':
                     new_key_age = (datetime.now(berlin_tz) - other_key['CreateDate'].astimezone(berlin_tz)).days
 
-            if (key_age >= DELETE_DAY and new_key_age >= 27 and len(keys) >= 2 and status == 'Inactive'):
+            if (key_age >= DELETE_DAY and new_key_age >= 41 and len(keys) >= 2 and status == 'Inactive'):
                 process_secrets_for_environments(username, key_id, secretsmanager, action='delete')
                 
                 if username not in operation_reports:
