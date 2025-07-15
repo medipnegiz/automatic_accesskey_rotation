@@ -61,7 +61,7 @@ def get_key_rotation_candidates():
                         'age_days': key_age
                     })
                 
-                elif (key_age >= DELETE_DAY and len(access_keys) >= 2 and status == 'Inactive' and new_key_age >= 27):
+                elif (key_age >= DELETE_DAY and len(access_keys) >= 2 and status == 'Inactive' and new_key_age >= 41):
                     delete_candidates.append({
                         'username': user_name,
                         'access_key_id': key['AccessKeyId'],
