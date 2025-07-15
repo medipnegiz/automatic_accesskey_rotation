@@ -1,9 +1,11 @@
 [
     {
         "username": "test-user",
-        "project_ids": ["1111"],
-        "target_environments": ["staging"],
+        "stage": ["staging"],
         "clusters": ["staging"],
+        "projects": [
+            {"id": "1111", "environment": "staging", "env_key_prefix": "AWS"}
+        ],
         "eks": [
             {
                 "namespace": "test-namespace",
@@ -13,10 +15,12 @@
     },
     {
         "username": "test-user-2",
-        "project_ids": ["2222", "3333"],
-        "target_environments": ["production"],
+        "stage": ["production"],
         "clusters": ["production"],
-        "env_key_prefix": "DATAPLATFORM_AWS",
+        "projects": [
+            {"id": "2222", "environment": "staging", "env_key_prefix": "DATAPLATFORM_AWS"},
+            {"id": "3333", "environment": "*", "env_key_prefix": "DATAPLATFORM_AWS"},
+        ],
         "eks": [
             {
                 "namespace": "test-namespace-2",
@@ -27,7 +31,6 @@
     },
     {
         "username": "test-user-3",
-        "target_environments": ["staging"],
-        "env_key_prefix": "DATAPLATFORM_AWS"
+        "stage": ["staging"],
     }
 ]
