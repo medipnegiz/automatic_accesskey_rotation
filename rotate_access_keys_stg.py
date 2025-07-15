@@ -79,8 +79,8 @@ def get_gitlab_project_name(project_id, gitlab_token):
         print(f"Error getting GitLab project name: {str(e)}")
         return f"project-{project_id}"        
 
-def get_secret_name(username, environment):
-    return f"{username}-aws-credentials{'' if environment == 'all' else f'-{environment.lower()}'}"  
+def get_secret_name(username, stage):
+    return f"{username}-aws-credentials-{stage.lower()}"
 
 def get_eks_bearer_token(cluster_name, region):
     try:
@@ -262,102 +262,96 @@ def process_secrets_for_environments(username, new_key, secretsmanager, action='
         if user_config["username"] != username:
             continue
             
-        env_key_prefix = user_config.get("env_key_prefix", "AWS")
-        environments = user_config.get("target_environments",["all"])
-
-        if isinstance(environments, str):
-            environments = [environments]
+        stage = user_config.get("stage", "staging")
+        secret_name = get_secret_name(username, stage)
+        env_result = {'created': False, 'updated': False}
             
-        for environment in environments:
-            secret_name = get_secret_name(username, environment)
-            env_result = {'created': False, 'updated': False}
-            
-            try:
-                if action == 'create':
-                    try:
-                        current_secret = secretsmanager.get_secret_value(SecretId=secret_name)
-                        secret_dict = json.loads(current_secret['SecretString'])
-                        
-                        if f'{env_key_prefix}_ACCESS_KEY_ID' in secret_dict:
-                            secret_dict[f'Old_{env_key_prefix}_ACCESS_KEY_ID'] = secret_dict[f'{env_key_prefix}_ACCESS_KEY_ID']
-                            secret_dict[f'Old_{env_key_prefix}_SECRET_ACCESS_KEY'] = secret_dict[f'{env_key_prefix}_SECRET_ACCESS_KEY']
-                            env_result['updated'] = True
+        try:
+            if action == 'create':
+                try:
+                    current_secret = secretsmanager.get_secret_value(SecretId=secret_name)
+                    secret_dict = json.loads(current_secret['SecretString'])
+                    
+                    if f'AWS_ACCESS_KEY_ID' in secret_dict:
+                        secret_dict[f'Old_AWS_ACCESS_KEY_ID'] = secret_dict[f'AWS_ACCESS_KEY_ID']
+                        secret_dict[f'Old_AWS_SECRET_ACCESS_KEY'] = secret_dict[f'AWS_SECRET_ACCESS_KEY']
+                        env_result['updated'] = True
 
-                    except secretsmanager.exceptions.ResourceNotFoundException:
-                        secret_dict = {}
-                        env_result['created'] = True
+                except secretsmanager.exceptions.ResourceNotFoundException:
+                    secret_dict = {}
+                    env_result['created'] = True
+                
+                secret_dict.update({
+                    f'AWS_ACCESS_KEY_ID': new_key['AccessKey']['AccessKeyId'],
+                    f'AWS_SECRET_ACCESS_KEY': new_key['AccessKey']['SecretAccessKey']
+                })
+                
+                try:
+                    secretsmanager.put_secret_value(
+                        SecretId=secret_name,
+                        SecretString=json.dumps(secret_dict)
+                    )
+                    print(f"New credentials saved to secret ({secret_name})")
+
+                except secretsmanager.exceptions.ResourceNotFoundException:
+                    secretsmanager.create_secret(
+                        Name=secret_name,
+                        Description=f"AWS credentials for {username}",
+                        SecretString=json.dumps(secret_dict)
+                    )
+                    print(f"New secret created in SecretManager for '{username}': {secret_name}'")
+                
+                result[stage] = env_result
+                
+            elif action == 'delete':
+                try:
+                    current_secret = secretsmanager.get_secret_value(SecretId=secret_name)
+                    secret_dict = json.loads(current_secret['SecretString'])
                     
-                    secret_dict.update({
-                        f'{env_key_prefix}_ACCESS_KEY_ID': new_key['AccessKey']['AccessKeyId'],
-                        f'{env_key_prefix}_SECRET_ACCESS_KEY': new_key['AccessKey']['SecretAccessKey']
-                    })
-                    
-                    try:
+                    if secret_dict.get(f'AWS_ACCESS_KEY_ID') == new_key:
+                        if f'Old_AWS_ACCESS_KEY_ID' in secret_dict:
+                            secret_dict[f'AWS_ACCESS_KEY_ID'] = secret_dict[f'Old_AWS_ACCESS_KEY_ID']
+                            secret_dict[f'AWS_SECRET_ACCESS_KEY'] = secret_dict[f'Old_AWS_SECRET_ACCESS_KEY']
+                            del secret_dict[f'Old_AWS_ACCESS_KEY_ID']
+                            del secret_dict[f'Old_AWS_SECRET_ACCESS_KEY']
+
+                            secretsmanager.put_secret_value(
+                                SecretId=secret_name,
+                                SecretString=json.dumps(secret_dict)
+                            )
+                            print(f"Promoted old credentials in '{secret_name}'")
+
+                        else:
+                            print(f"No old credentials found in secret '{secret_name}', leaving it unchanged")
+                            
+                    elif secret_dict.get(f'Old_AWS_ACCESS_KEY_ID') == new_key:
+                        del secret_dict[f'Old_AWS_ACCESS_KEY_ID']
+                        del secret_dict[f'Old_AWS_SECRET_ACCESS_KEY']
+
                         secretsmanager.put_secret_value(
                             SecretId=secret_name,
-                            SecretString=json.dumps(secret_dict)
-                        )
-                        print(f"New credentials saved to secret ({secret_name})")
+                            SecretString=json.dumps(secret_dict))
+                        print(f"Removed old credentials from secret '{secret_name}'")
 
-                    except secretsmanager.exceptions.ResourceNotFoundException:
-                        secretsmanager.create_secret(
-                            Name=secret_name,
-                            Description=f"AWS credentials for {username}",
-                            SecretString=json.dumps(secret_dict)
-                        )
-                        print(f"New secret created in SecretManager for '{username}': {secret_name}'")
-                    
-                    result[environment] = env_result
-                    
-                elif action == 'delete':
-                    try:
-                        current_secret = secretsmanager.get_secret_value(SecretId=secret_name)
-                        secret_dict = json.loads(current_secret['SecretString'])
-                        
-                        if secret_dict.get(f'{env_key_prefix}_ACCESS_KEY_ID') == new_key:
-                            if f'Old_{env_key_prefix}_ACCESS_KEY_ID' in secret_dict:
-                                secret_dict[f'{env_key_prefix}_ACCESS_KEY_ID'] = secret_dict[f'Old_{env_key_prefix}_ACCESS_KEY_ID']
-                                secret_dict[f'{env_key_prefix}_SECRET_ACCESS_KEY'] = secret_dict[f'Old_{env_key_prefix}_SECRET_ACCESS_KEY']
-                                del secret_dict[f'Old_{env_key_prefix}_ACCESS_KEY_ID']
-                                del secret_dict[f'Old_{env_key_prefix}_SECRET_ACCESS_KEY']
-
-                                secretsmanager.put_secret_value(
-                                    SecretId=secret_name,
-                                    SecretString=json.dumps(secret_dict)
-                                )
-                                print(f"Promoted old credentials in '{secret_name}'")
-
-                            else:
-                                print(f"No old credentials found in secret '{secret_name}', leaving it unchanged")
-                                
-                        elif secret_dict.get(f'Old_{env_key_prefix}_ACCESS_KEY_ID') == new_key:
-                            del secret_dict[f'Old_{env_key_prefix}_ACCESS_KEY_ID']
-                            del secret_dict[f'Old_{env_key_prefix}_SECRET_ACCESS_KEY']
+                    else:
+                        if f'Old_AWS_ACCESS_KEY_ID' in secret_dict:
+                            print(f"Access key '{new_key}' is being deleted, cleaning up old credentials in secret '{secret_name}'")
+                            del secret_dict[f'Old_AWS_ACCESS_KEY_ID']
+                            del secret_dict[f'Old_AWS_SECRET_ACCESS_KEY']
 
                             secretsmanager.put_secret_value(
                                 SecretId=secret_name,
                                 SecretString=json.dumps(secret_dict))
-                            print(f"Removed old credentials from secret '{secret_name}'")
+                        print(f"Secret `{secret_name}` has been updated successfully")
+                    
+                except secretsmanager.exceptions.ResourceNotFoundException:
+                    continue
 
-                        else:
-                            if f'Old_{env_key_prefix}_ACCESS_KEY_ID' in secret_dict:
-                                print(f"Access key '{new_key}' is being deleted, cleaning up old credentials in secret '{secret_name}'")
-                                del secret_dict[f'Old_{env_key_prefix}_ACCESS_KEY_ID']
-                                del secret_dict[f'Old_{env_key_prefix}_SECRET_ACCESS_KEY']
-
-                                secretsmanager.put_secret_value(
-                                    SecretId=secret_name,
-                                    SecretString=json.dumps(secret_dict))
-                            print(f"Secret `{secret_name}` has been updated successfully")
-                        
-                    except secretsmanager.exceptions.ResourceNotFoundException:
-                        continue
-
-                    except Exception as e:
-                        print(f"Error processing secret {secret_name}: {e}")
-                        
-            except Exception as e:
-                print(f"Error processing secret '{secret_name}' for environment '{environment}': {e}")
+                except Exception as e:
+                    print(f"Error processing secret {secret_name}: {e}")
+                    
+        except Exception as e:
+            print(f"Error processing secret '{secret_name}' for environment '{stage}': {e}")
     
     return result
 
@@ -369,48 +363,49 @@ def update_gitlab_variables_for_environments(username, new_key, GITLAB_ACCESS_TO
         if user_config["username"] != username:
             continue
 
-        env_key_prefix = user_config.get("env_key_prefix", "AWS")
-        environments = user_config.get("target_environments",["all"])
+        stage = user_config.get("stage", "staging")
 
-        if isinstance(environments, str):
-            environments = [environments]
+        if "projects" not in user_config:
+            print(f"Warning: User {username} has no projects defined, skipping")
+            continue
             
-        for project_id in user_config.get("project_ids",[]):
+        for project in user_config.get("projects", []):
+            project_id = project["id"]
+            gitlab_env = project.get("environment", "*")
+            env_key_prefix = project.get("env_key_prefix", "AWS")
             project_name = get_gitlab_project_name(project_id, GITLAB_ACCESS_TOKEN)
-            project_result = {}
 
-            for environment in environments:
-                env_result = {}
-                try:
-                    headers = {
-                        "PRIVATE-TOKEN": GITLAB_ACCESS_TOKEN,
-                        "Content-Type": "application/json"
-                    }
+            env_result = {}
+            try:
+                headers = {
+                    "PRIVATE-TOKEN": GITLAB_ACCESS_TOKEN,
+                    "Content-Type": "application/json"
+                }
 
-                    var_mapping = {
-                        f"{env_key_prefix}_ACCESS_KEY_ID": "AccessKeyId",
-                        f"{env_key_prefix}_SECRET_ACCESS_KEY": "SecretAccessKey"
-                    }
+                var_mapping = {
+                    f"{env_key_prefix}_ACCESS_KEY_ID": "AccessKeyId",
+                    f"{env_key_prefix}_SECRET_ACCESS_KEY": "SecretAccessKey"
+                }
 
-                    for gitlab_var, secret_key in var_mapping.items():
-                        var_result = update_gitlab_variable(
-                            project_id=project_id,
-                            variable_name=gitlab_var,
-                            variable_value=new_key['AccessKey'][secret_key],
-                            headers=headers,
-                            environment=environment
-                        )
-                        env_result[gitlab_var] = var_result
+                for gitlab_var, secret_key in var_mapping.items():
+                    var_result = update_gitlab_variable(
+                        project_id=project_id,
+                        variable_name=gitlab_var,
+                        variable_value=new_key['AccessKey'][secret_key],
+                        headers=headers,
+                        environment=gitlab_env
+                    )
+                    env_result[gitlab_var] = var_result
+            
+            except Exception as e:
+                print(f"WARNING: GitLab update failed for project '{project_name}' ({project_id}) environment '{gitlab_env}': {e}")
                 
-                except Exception as e:
-                    print(f"WARNING: GitLab update failed for project '{project_name}' ({project_id}) environment '{environment}': {e}")
-                
-                project_result[environment] = env_result
             
             result[project_id] = {
                 "project_name": project_name,
-                "updates": project_result,
-                "env_key_prefix": env_key_prefix
+                "updates": {gitlab_env: env_result},
+                "env_key_prefix": env_key_prefix,
+                "stage": stage
             }
     
     return result
@@ -430,7 +425,7 @@ def lambda_handler(event, context):
     
     for user_config in USER_CONFIGS:
         username = user_config["username"]
-        target_envs = user_config.get("target_environments",["all"])
+        target_envs = user_config.get("stage",["staging"])
         if isinstance(target_envs, str):
             target_envs = [target_envs]
         
@@ -571,19 +566,16 @@ def lambda_handler(event, context):
                     
                     gitlab_result = update_gitlab_variables_for_environments(username, new_key, GITLAB_ACCESS_TOKEN)
                     if gitlab_result:
-                        for project_id in user_config.get("project_ids",[]):
-                            project_info = gitlab_result.get(project_id, {})
+                        for project_id, project_info in gitlab_result.items():
                             project_name = project_info.get("project_name", f"project-{project_id}")
-                            env_key_prefix = project_info.get("env_key_prefix", "AWS") 
-
-                            for env in target_envs:
-                                for var in [f'{env_key_prefix}_ACCESS_KEY_ID', f'{env_key_prefix}_SECRET_ACCESS_KEY']:
-                                    if project_info.get("updates",{}).get(env,{}).get(var,{}).get('created'):
+                            
+                            for env, updates in project_info.get("updates", {}).items():
+                                for var, var_result in updates.items():
+                                    if var_result.get('created'):
                                         operation_reports[username]['Gitlab']['Created variables'].append(
                                             f"Variable '{var}' created for environment '{env}' in project '{project_name}' (ID: {project_id})"
                                         )
-
-                                    elif project_info.get("updates",{}).get(env,{}).get(var,{}).get('updated'):
+                                    elif var_result.get('updated'):
                                         operation_reports[username]['Gitlab']['Updated variables'].append(
                                             f"Variable '{var}' updated for environment '{env}' in project '{project_name}' (ID: {project_id})"
                                         )
@@ -639,14 +631,13 @@ def lambda_handler(event, context):
             message += "The Gitlab variables and Kubernetes secrets associated with these IAM users updated.\n"
             message += "*(For more information, see detailed report)*\n\n"
             message += " ✨ *IAM-Users with new access key created:*\n"
-            for username, key_id in new_key_users:
-                old_key_id = operation_reports[username]['Key rotation']['Old access key']
+            for username, new_key_id in new_key_users:
                 log_url = generate_presigned_url(S3_LOG_BUCKET, user_log_files.get(username, ""))
 
                 if log_url:
-                    message += f"- {username} `({old_key_id})` (For detailed report, click <{log_url}|HERE>)\n"
+                    message += f"- {username} `({new_key_id})`🆕 (For detailed report, click <{log_url}|HERE>)\n"
                 else:
-                    message += f"- {username} `({old_key_id})`\n"
+                    message += f"- {username} `({new_key_id})`🆕\n"
             message += "\n"
             message += "⚠️ *Old access keys will be deactivated after 14 days*\n\n"
 
@@ -708,14 +699,18 @@ def update_gitlab_variable(project_id, variable_name, variable_value, headers, e
                 existing_var = var
                 break
 
+        is_secret = variable_name.endswith('_SECRET_ACCESS_KEY')
+        variable_settings = {
+            "value": variable_value,
+            "protected": False,
+            "masked": is_secret,
+            "raw": False,
+            "environment_scope": scope
+        }            
+
         if variable_exists:
             update_url = f"{GITLAB_API_URL}/projects/{project_id}/variables/{variable_name}?filter[environment_scope]={scope}"
-            response = requests.put(update_url, headers=headers, json={
-                "value": variable_value,
-                "protected": True,
-                "masked": True,
-                "environment_scope": scope
-            })
+            response = requests.put(update_url, headers=headers, json=variable_settings)
 
             if response.status_code == 200:
                 result['updated'] = True
@@ -726,13 +721,8 @@ def update_gitlab_variable(project_id, variable_name, variable_value, headers, e
 
         else:
             create_url = f"{GITLAB_API_URL}/projects/{project_id}/variables"
-            response = requests.post(create_url, headers=headers, json={
-                "key": variable_name,
-                "value": variable_value,
-                "protected": True,
-                "masked": True,
-                "environment_scope": scope
-            })
+            variable_settings["key"] = variable_name
+            response = requests.post(create_url, headers=headers, json=variable_settings)
 
             if response.status_code == 201:
                 result['created'] = True
