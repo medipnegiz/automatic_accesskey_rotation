@@ -6,8 +6,8 @@ import pytz
 
 WEBHOOK_URL = "<WEBHOOK_URL>"
 CREATE_DAY = 180
-DEACTIVE_DAY = 194
-DELETE_DAY = 222
+DEACTIVE_DAY = 193
+DELETE_DAY = 221
 
 def load_user_configs():
     try:
