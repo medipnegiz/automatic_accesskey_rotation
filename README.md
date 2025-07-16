@@ -1,5 +1,7 @@
 # AWS IAM Access Key Rotation Automation
 
+![Concept](./Konzept_2.jpg)
+
 ## Overview
 This AWS Lambda function automates the rotation of IAM access keys for specified users, updating associated credentials in AWS Secrets Manager, GitLab CI/CD variables, and Kubernetes secrets. The solution follows security best practices by:
 
