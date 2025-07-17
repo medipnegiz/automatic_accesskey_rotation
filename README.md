@@ -1,85 +1,88 @@
-# AWS IAM Access Key Rotation Automation
+# AWS IAM Access Key Rotation and EKS Deployment Restart Automation
 
-![Concept](./Konzept_2.jpg)
+This project provides an automated system for rotating AWS IAM access keys, updating related secrets, and restarting affected EKS deployments.
 
-## Overview
-This AWS Lambda function automates the rotation of IAM access keys for specified users, updating associated credentials in AWS Secrets Manager, GitLab CI/CD variables, and Kubernetes secrets. The solution follows security best practices by:
+## System Architecture
 
-1. Creating new access keys before old ones expire
-2. Gracefully deactivating old keys before deletion
-3. Synchronizing credentials across multiple systems
-4. Providing detailed audit logs and notifications
+![Concept Diagram](Concept.jpg)
 
-## Key Features
-- Automated key rotation: Creates new keys when existing ones approach expiration
-- Multi-system synchronization: Updates credentials in AWS Secrets Manager, GitLab, and Kubernetes
-- Phased deactivation: Deactivates old keys before eventual deletion
-- Comprehensive logging: Stores detailed rotation logs in S3
-- Real-time notifications: Sends alerts to Google Chat
-- Kubernetes integration: Updates secrets and labels deployments using those secrets
+The system consists of 4 main Lambda functions:
+
+1. **Pre-Rotation Notification Lambda** (`rotate_access_keys_send_message.py`):
+   - Runs every 14 days
+   - Announces which IAM users will have their keys rotated
+   - Sends notifications via Google Chat
+
+2. **Access Key Rotation Lambda** (`rotate_access_keys.py`):
+   - Runs every 14 days
+   - Rotates IAM keys (create/deactivate/delete)
+   - Updates related secrets in AWS Secrets Manager
+   - Updates GitLab CI/CD variables
+   - Writes new keys to EKS secrets
+   - Labels affected deployments
+
+4. **Deployment Restart Notification Lambda** (`restart_k8s_deployments_send_message.py`):
+   - Runs every 14 days
+   - Announces which deployments will be restarted
+   - Sends notifications via Google Chat
+
+6. **Deployment Restart Lambda** (`restart_k8s_deployments.py`):
+   - Runs every 14 days
+   - Finds deployments with `accesskey-rotation=true` label
+   - Restarts the identified deployments
+   - Reports results to Google Chat
+   - Stores logs in S3
 
 ## How It Works
-The Lambda function runs on a schedule (recommended daily) and:
-1. Checks each configured IAM user's access keys
-2. For keys approaching expiration:
-   - Creates new keys if needed
-   - Deactivates old keys after a grace period
-   - Deletes expired keys
-3. Updates credentials in:
-   - AWS Secrets Manager secrets
-   - GitLab CI/CD variables
-   - Kubernetes secrets
-4. Labels Kubernetes resources during rotation for tracking
-5. Generates detailed logs in S3
-6. Sends notifications to Google Chat
 
-## Configuration
-The system is configured via a JSON file (iam_users_config_stg.json) that specifies:
-```json
-[
-    {
-        "username": "men-test-user",
-        "stage": "staging",
-        "clusters": ["staging"],
-        "projects": [
-            {"id": "446", "environment": "staging", "env_key_prefix": "AWS"},
-            {"id": "670", "environment": "*"},
-            {"id": "404", "environment": "Staging", "env_key_prefix": "DATAPLATFORM_AWS"}
-        ],
-        "eks": [
-            {
-                "namespace": "crm",
-                "secret_names": ["crm-test-credentials"]
-            }
-        ]
-    }
-]
-```
-## Configuration Fields
-- `username:` IAM username
-- `stage:` Environment stage (e.g., "staging")
-- `clusters:` List of Kubernetes clusters to update
-- `projects:` GitLab projects to update with:
-   - `id:` Project ID
-   - `environment:` Environment scope
-   - `env_key_prefix:` Variable name prefix
-- `eks:` Kubernetes namespaces and secrets to update
+1. **Rotation Rules**:
+   - Create new keys for keys older than 180 days
+   - Deactivate secondary keys older than 194 days
+   - Delete inactive keys older than 222 days
 
-## Function Details
-### Core Functions
-1. `lambda_handler` - Main entry point
-   - Orchestrates the entire rotation process
-   - Handles key creation, deactivation, and deletion
-   - Coordinates updates across all systems
-   - Generates reports and notifications
-2. `process_secrets_for_environments` - Manages AWS Secrets Manager updates
-   - Creates/updates secrets with new credentials
-   - Handles promotion of old credentials when needed
-3. `update_gitlab_variables_for_environments` - Updates GitLab CI/CD variables
-   - Updates or creates variables across configured projects
-   - Handles different environment scopes
-4. `update_k8s_secrets_if_exists` - Manages Kubernetes secrets
-   - Updates secrets in configured namespaces
-   - Labels resources during rotation
-5. `clean_rotation_labels_from_k8s` - Cleans up rotation labels
-   - Removes temporary labels after rotation completes
+2. **Integrations**:
+   - New keys are stored in AWS Secrets Manager
+   - GitLab CI/CD variables are updated
+   - EKS secrets are updated and related deployments are labeled
+   - Labeled deployments are restarted
+
+## Requirements
+
+1. **AWS Resources**:
+   - IAM permissions (Access Key management)
+   - Secrets Manager (Secret storage)
+   - S3 Bucket (Log storage)
+   - EKS Cluster (For running deployments)
+   - Lambda functions
+   - EventBridge (Scheduled triggers)
+
+2. **Other Integrations**:
+   - Google Chat Webhook URL
+   - GitLab API Token
+   - Kubernetes Service Account
+
+## Installation
+
+1. **Configuration Files**:
+   - `iam_users.json`: List of IAM users for rotation
+   - `iam_users_config.json`: User project and EKS configurations
+
+2. **Lambda Environment Variables**:
+   - `GOOGLE_CHAT_WEBHOOK_URL`: Notification webhook
+   - `GITLAB_API_URL`: GitLab instance URL
+   - `S3_LOG_BUCKET`: Log storage bucket
+
+3. **EventBridge Rules**:
+   - `rotate_access_keys_send_message`: Runs every 14 days on Tuesday
+   - `rotate_access_keys`: Runs 1 hour after notification
+   - `restart_k8s_deployments_send_message`: Runs after rotation completes
+   - `restart_k8s_deployments`: Runs after restart notification
+
+## Usage
+
+The system is designed to run automatically. For manual execution:
+
+1. First run the notification Lambdas
+2. Then run the processing Lambdas
+
+Logs are stored in S3 bucket organized by username and shared via 12-hour valid presigned URLs.
