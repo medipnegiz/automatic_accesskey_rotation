@@ -1,4 +1,4 @@
-# AWS IAM Access Key Rotation and EKS Deployment Restart Automation
+# AWS IAM Access Key Rotation
 
 This project provides an automated system for rotating AWS IAM access keys, updating related secrets, and restarting affected EKS deployments.
 
@@ -73,7 +73,7 @@ The system consists of 4 main Lambda functions:
    - `S3_LOG_BUCKET`: Log storage bucket
 
 3. **EventBridge Rules**:
-   - `rotate_access_keys_send_message`: Runs every 14 days on Tuesday
+   - `rotate_access_keys_send_message`: Runs every 14 days
    - `rotate_access_keys`: Runs 1 hour after notification
    - `restart_k8s_deployments_send_message`: Runs after rotation completes
    - `restart_k8s_deployments`: Runs after restart notification
