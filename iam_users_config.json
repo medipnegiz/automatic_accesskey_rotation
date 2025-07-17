@@ -18,7 +18,7 @@
         "stage": ["production"],
         "clusters": ["production"],
         "projects": [
-            {"id": "2222", "environment": "staging", "env_key_prefix": "AWS"},
+            {"id": "2222", "environment": "production", "env_key_prefix": "AWS"},
             {"id": "3333", "environment": "*", "env_key_prefix": "DATAPLATFORM_AWS"}
         ],        
         "eks": [
@@ -31,6 +31,24 @@
     },
     {
         "username": "test-user-3",
+        "stage": ["integration"],
+        "clusters": ["integration"],     
+        "eks": [
+            {
+                "namespace": "test-namespace-3",
+                "secret_names": ["test-secret-4"]
+            }
+        ]
+    },
+    {
+        "username": "test-user-4",
+        "stage": ["staging"],
+        "projects": [
+            {"id": "4444", "environment": "staging", "env_key_prefix": "AWS"},
+        ],        
+    },    
+    {
+        "username": "test-user-5",
         "stage": ["staging"]
     }
 ]
