@@ -1,7 +1,7 @@
 [
     {
         "username": "test-user",
-        "stage": ["staging"],
+        "stage": "staging",
         "clusters": ["staging"],
         "projects": [
             {"id": "1111", "environment": "staging", "env_key_prefix": "AWS"}
@@ -15,7 +15,7 @@
     },
     {
         "username": "test-user-2",
-        "stage": ["production"],
+        "stage": "production",
         "clusters": ["production"],
         "projects": [
             {"id": "2222", "environment": "production", "env_key_prefix": "AWS"},
@@ -31,7 +31,7 @@
     },
     {
         "username": "test-user-3",
-        "stage": ["integration"],
+        "stage": "integration",
         "clusters": ["integration"],     
         "eks": [
             {
@@ -42,13 +42,13 @@
     },
     {
         "username": "test-user-4",
-        "stage": ["staging"],
+        "stage": "staging",
         "projects": [
             {"id": "4444", "environment": "staging", "env_key_prefix": "AWS"},
         ],        
     },    
     {
         "username": "test-user-5",
-        "stage": ["staging"]
+        "stage": "staging"
     }
 ]
