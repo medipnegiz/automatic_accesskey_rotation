@@ -80,6 +80,11 @@ def get_gitlab_project_name(project_id, gitlab_token):
         return f"project-{project_id}"        
 
 def get_secret_name(username, stage):
+    if not isinstance(stage, str):
+        if isinstance(stage, list) and stage:
+            stage = stage[0]
+        else:
+            stage = "staging"    
     return f"{username}-aws-credentials-{stage.lower()}"
 
 def get_eks_bearer_token(cluster_name, region):
@@ -254,15 +259,17 @@ def update_k8s_secrets_if_exists(username, new_access_key, new_secret_key):
     
     return result
 
-def process_secrets_for_environments(username, new_key, secretsmanager, action='create'):
+def process_secrets_for_environments(username, new_key, secretsmanager, action='create', stage=None):
     result = {}
     USER_CONFIGS = load_user_configs()
 
     for user_config in USER_CONFIGS:
         if user_config["username"] != username:
             continue
+
+        if stage is None:
+            stage = user_config.get("stage", "staging")
             
-        stage = user_config.get("stage", "staging")
         secret_name = get_secret_name(username, stage)
         env_result = {'created': False, 'updated': False}
             
@@ -425,9 +432,8 @@ def lambda_handler(event, context):
     
     for user_config in USER_CONFIGS:
         username = user_config["username"]
-        target_envs = user_config.get("stage",["staging"])
-        if isinstance(target_envs, str):
-            target_envs = [target_envs]
+        stage = user_config.get("stage", "staging")
+        target_envs = [stage]
         
         user_has_activity = False
         
@@ -451,7 +457,7 @@ def lambda_handler(event, context):
                     new_key_age = (datetime.now(berlin_tz) - other_key['CreateDate'].astimezone(berlin_tz)).days
 
             if (key_age >= DELETE_DAY and new_key_age >= 41 and len(keys) >= 2 and status == 'Inactive'):
-                process_secrets_for_environments(username, key_id, secretsmanager, action='delete')
+                process_secrets_for_environments(username, key_id, secretsmanager, action='delete', stage=stage)
                 
                 if username not in operation_reports:
                     operation_reports[username] = {
@@ -555,7 +561,7 @@ def lambda_handler(event, context):
                     user_has_activity = True
                     new_key_users.append((username, new_key['AccessKey']['AccessKeyId']))
                     
-                    secret_result = process_secrets_for_environments(username, new_key, secretsmanager, action='create')
+                    secret_result = process_secrets_for_environments(username, new_key, secretsmanager, action='create', stage=stage)
                     if secret_result:
                         for env in target_envs:
                             secret_name = get_secret_name(username, env)
@@ -845,4 +851,4 @@ def generate_presigned_url(bucket_name, object_key, expiration=LINK_EXPIRATION_S
         return url
     except Exception as e:
         print(f"Error generating presigned URL: {str(e)}")
-        return None        
+        return None
