@@ -23,6 +23,7 @@ DELETE_DAY = 221
 LINK_EXPIRATION_SECOND = 43200
 
 GITLAB_API_URL = "<GITLAB_API_URL>"
+GITLAB_SECRET_NAME = "<GITLAB_SECRET_NAME"
 S3_LOG_BUCKET = "<LOG_BUCKET_NAME>"
 GOOGLE_CHAT_WEBHOOK_URL = "<WEBHOOK_URL>"
 
@@ -51,8 +52,8 @@ def send_google_chat_message(message):
         print(f"Google Chat message sending error: {str(e)}")
 
 def get_gitlab_token():
-    secret_name = "gitlab/access-token"
-    region_name = "eu-central-1" 
+    secret_name = GITLAB_SECRET_NAME
+    region_name = COMMON_CLUSTERS["staging"]["region"]
     client = boto3.client('secretsmanager', region_name=region_name)
     
     try:
